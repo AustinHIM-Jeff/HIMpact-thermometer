@@ -1,98 +1,78 @@
-// Disable Next.js bodyParser if running in a Next.js environment (not needed for Vercel Functions)
-// export const config = { api: { bodyParser: false } };
-
 const d3 = require('d3');
 const { JSDOM } = require('jsdom');
-const querystring = require('querystring');
 
-// Vercel Serverless Function Handler
 module.exports = async (req, res) => {
-  try {
-    // 1. Read raw body from Slack
-    const bodyString = await new Promise((resolve, reject) => {
-      let data = '';
-      req.on('data', chunk => data += chunk);
-      req.on('end', () => resolve(data));
-      req.on('error', err => reject(err));
-    });
-    console.log('Raw body:', bodyString);
-    const body = querystring.parse(bodyString);
+    // 1. Get total and goal from query parameters (for browser testing)
+    // Default values if not provided
+    const total = parseInt(req.query.total) || 5000;
+    const goal = parseInt(req.query.goal) || 10000;
 
-    // 2. Extract command text for total and goal
-    const { text } = body;
-    const [totalStr, goalStr] = (text || '').trim().split(' ');
-    const total = parseInt(totalStr, 10) || 0;
-    const goal = parseInt(goalStr, 10) || 10000;
-    console.log(`Parsed total=${total}, goal=${goal}`);
+    // Basic validation
+    const currentAmount = Math.max(0, total); // Ensure non-negative
+    const goalAmount = Math.max(1, goal); // Ensure goal is at least 1 to avoid division by zero
+    const percentage = Math.min(1, currentAmount / goalAmount); // Cap percentage at 100%
 
-    // 3. Compute dimensions and fill height
+    // 2. Set SVG dimensions
     const width = 100;
     const height = 300;
-    const ratio = Math.max(0, Math.min(1, total / goal));
-    const filledHeight = ratio * height;
+    const barWidth = 60;
+    const barX = (width - barWidth) / 2; // Center the bar
+    const filledHeight = percentage * height;
 
-    // 4. Create SVG via D3 + JSDOM
+    // 3. Initialize virtual DOM & SVG using jsdom
     const dom = new JSDOM(`<!DOCTYPE html><body></body>`);
-    const bodySel = d3.select(dom.window.document).select('body');
-    const svg = bodySel.append('svg')
-      .attr('width', width)
-      .attr('height', height);
+    const body = d3.select(dom.window.document).select('body');
+    const svg = body.append('svg')
+        .attr('width', width)
+        .attr('height', height)
+        .attr('xmlns', 'http://www.w3.org/2000/svg'); // Add xmlns attribute
 
-    // Thermometer outline
+    // 4. Draw thermometer outline (background)
     svg.append('rect')
-      .attr('x', 20)
-      .attr('y', 0)
-      .attr('width', 60)
-      .attr('height', height)
-      .attr('fill', 'none')
-      .attr('stroke', '#333');
+        .attr('x', barX)
+        .attr('y', 0)
+        .attr('width', barWidth)
+        .attr('height', height)
+        .attr('fill', '#e0e0e0') // Light grey background
+        .attr('stroke', '#333')
+        .attr('stroke-width', 1);
 
-    // Filled portion
+    // 5. Draw filled portion (the "mercury")
     svg.append('rect')
-      .attr('x', 20)
-      .attr('y', height - filledHeight)
-      .attr('width', 60)
-      .attr('height', filledHeight)
-      .attr('fill', '#4caf50');
+        .attr('x', barX)
+        .attr('y', height - filledHeight) // Y position starts from the bottom up
+        .attr('width', barWidth)
+        .attr('height', filledHeight)
+        .attr('fill', '#4caf50'); // Green fill
 
-    // 5. Encode SVG as Data URI
-    const svgString = dom.window.document.querySelector('body').innerHTML;
-    const svgDataUri = `data:image/svg+xml;utf8,${encodeURIComponent(svgString)}`;
+    // --- Optional: Add Text Labels ---
+    // Goal Label
+    svg.append('text')
+        .attr('x', width / 2)
+        .attr('y', 15) // Position near the top
+        .attr('text-anchor', 'middle')
+        .attr('font-family', 'sans-serif')
+        .attr('font-size', '12px')
+        .attr('fill', '#333')
+        .text(`Goal: $${goalAmount.toLocaleString()}`);
 
-    // 6. Construct Slack Block Kit Response
-    const payload = {
-      response_type: 'in_channel',
-      blocks: [
-        {
-          type: 'image',
-          image_url: svgDataUri,
-          alt_text: `Raised $${total} of $${goal}`
-        },
-        {
-          type: 'actions',
-          elements: [
-            {
-              type: 'button',
-              text: {
-                type: 'plain_text',
-                text: '💖 Donate Now'
-              },
-              url: 'https://www.zeffy.com/en-US/peer-to-peer/f3-austin-donates-to-austin-him-foundation-challenge',
-              action_id: 'donate_button'
-            }
-          ]
-        }
-      ]
-    };
+    // Current Amount Label (only if > 0)
+     if (currentAmount > 0) {
+         svg.append('text')
+             .attr('x', width / 2)
+             .attr('y', height - filledHeight + 15) // Position inside the filled part
+             .attr('text-anchor', 'middle')
+             .attr('font-family', 'sans-serif')
+             .attr('font-size', '12px')
+             .attr('fill', filledHeight > 20 ? '#fff' : '#333') // White text if enough space, else black
+             .text(`$${currentAmount.toLocaleString()}`);
+     }
+    // --- End Optional Labels ---
 
-    // 7. Send JSON response back to Slack
-    res.setHeader('Content-Type', 'application/json');
-    res.statusCode = 200;
-    res.end(JSON.stringify(payload));
-  } catch (err) {
-    console.error('Thermometer error:', err);
-    res.statusCode = 500;
-    res.setHeader('Content-Type', 'text/plain');
-    res.end('Internal Server Error');
-  }
+    // 6. Get the SVG markup as a string
+    const svgString = dom.window.document.querySelector('svg').outerHTML;
+
+    // 7. Send the SVG as the response
+    res.setHeader('Content-Type', 'image/svg+xml');
+    res.status(200).send(svgString);
 };
