@@ -1,78 +1,67 @@
-const d3 = require('d3');
-const { JSDOM } = require('jsdom');
+// const d3 = require('d3'); // <<<< DELETE THIS LINE
+const { JSDOM } = require('jsdom'); // Keep this one
 
-module.exports = async (req, res) => {
-    // 1. Get total and goal from query parameters (for browser testing)
-    // Default values if not provided
-    const total = parseInt(req.query.total) || 5000;
-    const goal = parseInt(req.query.goal) || 10000;
+module.exports = async (req, res) => { // Still async
+    console.log("Function entered. Request Query:", req.query);
 
-    // Basic validation
-    const currentAmount = Math.max(0, total); // Ensure non-negative
-    const goalAmount = Math.max(1, goal); // Ensure goal is at least 1 to avoid division by zero
-    const percentage = Math.min(1, currentAmount / goalAmount); // Cap percentage at 100%
+    try { // Wrap main logic in try...catch
+        const d3 = await import('d3'); // <<<< ADD THIS LINE - Dynamic Import
+        console.log("D3 module loaded dynamically.");
 
-    // 2. Set SVG dimensions
-    const width = 100;
-    const height = 300;
-    const barWidth = 60;
-    const barX = (width - barWidth) / 2; // Center the bar
-    const filledHeight = percentage * height;
+        // --- THE REST OF YOUR CODE ---
+        // (parsing req.query, calculating values, using JSDOM, using d3.select, etc.)
+        // ...
 
-    // 3. Initialize virtual DOM & SVG using jsdom
-    const dom = new JSDOM(`<!DOCTYPE html><body></body>`);
-    const body = d3.select(dom.window.document).select('body');
-    const svg = body.append('svg')
-        .attr('width', width)
-        .attr('height', height)
-        .attr('xmlns', 'http://www.w3.org/2000/svg'); // Add xmlns attribute
+        const total = parseInt(req.query?.total) || 5000;
+        const goal = parseInt(req.query?.goal) || 10000;
+        console.log(`Parsed total: ${total}, goal: ${goal}`);
 
-    // 4. Draw thermometer outline (background)
-    svg.append('rect')
-        .attr('x', barX)
-        .attr('y', 0)
-        .attr('width', barWidth)
-        .attr('height', height)
-        .attr('fill', '#e0e0e0') // Light grey background
-        .attr('stroke', '#333')
-        .attr('stroke-width', 1);
+        const currentAmount = Math.max(0, total);
+        const goalAmount = Math.max(1, goal);
+        const percentage = Math.min(1, currentAmount / goalAmount);
+        console.log(`Calculated percentage: ${percentage}`);
 
-    // 5. Draw filled portion (the "mercury")
-    svg.append('rect')
-        .attr('x', barX)
-        .attr('y', height - filledHeight) // Y position starts from the bottom up
-        .attr('width', barWidth)
-        .attr('height', filledHeight)
-        .attr('fill', '#4caf50'); // Green fill
+        const width = 100, height = 300, barWidth = 60, barX = (width - barWidth) / 2;
+        const filledHeight = percentage * height;
+        console.log("Dimensions calculated.");
 
-    // --- Optional: Add Text Labels ---
-    // Goal Label
-    svg.append('text')
-        .attr('x', width / 2)
-        .attr('y', 15) // Position near the top
-        .attr('text-anchor', 'middle')
-        .attr('font-family', 'sans-serif')
-        .attr('font-size', '12px')
-        .attr('fill', '#333')
-        .text(`Goal: $${goalAmount.toLocaleString()}`);
+        console.log("Initializing JSDOM...");
+        const dom = new JSDOM(`<!DOCTYPE html><body></body>`);
+        const body = d3.select(dom.window.document).select('body'); // d3 is now available
+        const svg = body.append('svg')
+            .attr('width', width).attr('height', height).attr('xmlns', 'http://www.w3.org/2000/svg');
+        console.log("JSDOM initialized, SVG created.");
 
-    // Current Amount Label (only if > 0)
-     if (currentAmount > 0) {
-         svg.append('text')
-             .attr('x', width / 2)
-             .attr('y', height - filledHeight + 15) // Position inside the filled part
-             .attr('text-anchor', 'middle')
-             .attr('font-family', 'sans-serif')
-             .attr('font-size', '12px')
-             .attr('fill', filledHeight > 20 ? '#fff' : '#333') // White text if enough space, else black
-             .text(`$${currentAmount.toLocaleString()}`);
-     }
-    // --- End Optional Labels ---
+        // ... rest of SVG drawing, getting svgString, and sending response ...
+        // Make sure the rest of the code inside the try block is present
 
-    // 6. Get the SVG markup as a string
-    const svgString = dom.window.document.querySelector('svg').outerHTML;
+        svg.append('rect').attr('x', barX).attr('y', 0).attr('width', barWidth).attr('height', height).attr('fill', '#e0e0e0').attr('stroke', '#333').attr('stroke-width', 1);
+        svg.append('rect').attr('x', barX).attr('y', height - filledHeight).attr('width', barWidth).attr('height', filledHeight).attr('fill', '#4caf50');
+        console.log("Drew rectangles.");
 
-    // 7. Send the SVG as the response
-    res.setHeader('Content-Type', 'image/svg+xml');
-    res.status(200).send(svgString);
+        // Add Labels...
+        svg.append('text').attr('x', width / 2).attr('y', 15).attr('text-anchor', 'middle').attr('font-family', 'sans-serif').attr('font-size', '12px').attr('fill', '#333').text(`Goal: $${goalAmount.toLocaleString()}`);
+        if (currentAmount > 0) {
+            svg.append('text').attr('x', width / 2).attr('y', Math.max(20, height - filledHeight + 15)).attr('text-anchor', 'middle').attr('font-family', 'sans-serif').attr('font-size', '12px').attr('fill', filledHeight > 30 ? '#fff' : '#333').text(`$${currentAmount.toLocaleString()}`);
+        }
+        console.log("Added labels.");
+
+        console.log("Selecting SVG for output...");
+        const svgElement = dom.window.document.querySelector('svg');
+        if (!svgElement) {
+            throw new Error("Could not find SVG element after creation.");
+        }
+        const svgString = svgElement.outerHTML;
+        console.log("SVG string generated. Length:", svgString.length);
+
+
+        console.log("Setting headers and sending response...");
+        res.setHeader('Content-Type', 'image/svg+xml');
+        res.status(200).send(svgString);
+        console.log("Response sent.");
+
+    } catch (error) {
+        console.error("!!! CRITICAL ERROR IN FUNCTION:", error.message, error.stack); // Log the full error
+        res.status(500).send(`Internal Server Error: ${error.message}`);
+    }
 };
